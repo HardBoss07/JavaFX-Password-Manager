@@ -1,14 +1,12 @@
 package ch.bosshard.matteo.javapasswordmanager;
 
 import javafx.application.Application;
-import javafx.fxml.FXMLLoader;
 import javafx.scene.Scene;
 import javafx.scene.control.*;
 import javafx.scene.control.cell.PropertyValueFactory;
 import javafx.scene.layout.BorderPane;
 import javafx.scene.layout.HBox;
 import javafx.scene.layout.VBox;
-import javafx.scene.text.Text;
 import javafx.stage.Stage;
 
 import java.io.IOException;
@@ -16,16 +14,23 @@ import java.io.IOException;
 public class HelloApplication extends Application {
     PasswordManager manager = new PasswordManager();
     BorderPane root = new BorderPane();
+    String masterPassword; // Store the master password after login
 
     @Override
     public void start(Stage mainStage) throws IOException {
-        generateExamplePasswords();
+        // Load data on startup
+        manager.loadMasterPassword();
+
         mainStage.setTitle("Password Manager");
         Label titleLabel = new Label("Java Password Manager");
-
         root.setTop(titleLabel);
 
-        root.setCenter(getMasterPasswordPane());
+        // Check if master password is already set
+        if (manager.getHashedPassword() != null && manager.getSalt() != null) {
+            root.setCenter(getLoginPane());
+        } else {
+            root.setCenter(getMasterPasswordPane());
+        }
 
         Scene scene = new Scene(root, 1200, 700);
         mainStage.setScene(scene);
@@ -36,45 +41,47 @@ public class HelloApplication extends Application {
         VBox passwordPane = new VBox(10);
 
         Label label = new Label("Set your master password");
-
-        TextField masterPassword = new TextField("Set your master password");
+        TextField masterPasswordField = new TextField();
+        masterPasswordField.setPromptText("Set your master password");
         Button setMasterPwBtn = new Button("Submit");
         setMasterPwBtn.setOnAction(e -> {
-            String password = masterPassword.getText();
-            if (password.isEmpty()) {
+            if (manager.getHashedPassword() != null && manager.getSalt() != null) {
+                showAlert("Error", "Master password already exists! Please log in.");
+                return;
+            }
+
+            masterPassword = masterPasswordField.getText();
+            if (masterPassword.isEmpty()) {
                 showAlert("Error", "Master password cannot be empty!");
                 return;
             }
-            setMasterPassword(password);
+            manager.setMasterPassword(masterPassword);
             root.setCenter(getLoginPane());
         });
 
-        passwordPane.getChildren().addAll(label, masterPassword, setMasterPwBtn);
+        passwordPane.getChildren().addAll(label, masterPasswordField, setMasterPwBtn);
         return passwordPane;
-    }
-
-    private void setMasterPassword(String masterPassword) {
-        manager.setMasterPassword(masterPassword);
-        System.out.println("Hashed Password: " + manager.getHashedPassword());
-        System.out.println("Salt: " + manager.getSalt());
     }
 
     private VBox getLoginPane() {
         VBox loginPane = new VBox(10);
-        Label label = new Label("Login with your master password");
-        TextField login = new TextField("Enter your master password");
-        Button loginBtn = new Button("Submit");
-        loginBtn.setOnAction(e -> checkMasterPassword(login.getText()));
-        loginPane.getChildren().addAll(label, login, loginBtn);
-        return loginPane;
-    }
 
-    private void checkMasterPassword(String masterPassword) {
-        if (manager.validateMasterPassword(masterPassword)) {
-            root.setCenter(getAfterSuccessfulLoginPane());
-        } else {
-            showAlert("Error", "Master Password Incorrect");
-        }
+        Label label = new Label("Login with your master password");
+        PasswordField loginField = new PasswordField();
+        loginField.setPromptText("Enter your master password");
+        Button loginBtn = new Button("Login");
+        loginBtn.setOnAction(e -> {
+            masterPassword = loginField.getText();
+            if (manager.validateMasterPassword(masterPassword)) {
+                manager.loadPasswordEntries(masterPassword);
+                root.setCenter(getAfterSuccessfulLoginPane());
+            } else {
+                showAlert("Error", "Master password is incorrect!");
+            }
+        });
+
+        loginPane.getChildren().addAll(label, loginField, loginBtn);
+        return loginPane;
     }
 
     private VBox getAfterSuccessfulLoginPane() {
@@ -90,10 +97,10 @@ public class HelloApplication extends Application {
         TableColumn<PasswordEntry, String> passwordColumn = new TableColumn<>("Password");
         passwordColumn.setCellValueFactory(new PropertyValueFactory<>("plaintextPassword"));
 
-        TableColumn<PasswordEntry, String> hashedPasswordColumn = new TableColumn<>("Hashed Password");
-        hashedPasswordColumn.setCellValueFactory(new PropertyValueFactory<>("hashedPassword"));
+        TableColumn<PasswordEntry, String> hashColumn = new TableColumn<>("Hash");
+        hashColumn.setCellValueFactory(new PropertyValueFactory<>("hashedPassword"));
 
-        passwordTable.getColumns().addAll(serviceColumn, passwordColumn, hashedPasswordColumn);
+        passwordTable.getColumns().addAll(serviceColumn, passwordColumn, hashColumn);
         passwordTable.setColumnResizePolicy(TableView.CONSTRAINED_RESIZE_POLICY);
         passwordTable.getItems().addAll(manager.getPasswordEntries());
 
@@ -121,7 +128,7 @@ public class HelloApplication extends Application {
         HBox newPasswordHBox = new HBox(10);
         newPasswordHBox.getChildren().addAll(serviceField, passwordField, addPasswordBtn);
 
-        mainPane.getChildren().addAll(label, newPasswordHBox, passwordTable);
+        mainPane.getChildren().addAll(label, yourPasswords, newPasswordHBox, passwordTable);
 
         return mainPane;
     }
@@ -133,10 +140,13 @@ public class HelloApplication extends Application {
         alert.showAndWait();
     }
 
-    private void generateExamplePasswords() {
-        manager.addPassword("Google", "myGooglePassword.123");
-        manager.addPassword("Facebook", "myFacebookPassword.456");
-        manager.addPassword("Twitter", "myTwitterPassword.789");
+    @Override
+    public void stop() throws Exception {
+        // Save all data (master password and password entries) on app close
+        if (masterPassword != null) {
+            manager.savePasswordEntries(masterPassword);
+        }
+        super.stop();
     }
 
     public static void main(String[] args) {
